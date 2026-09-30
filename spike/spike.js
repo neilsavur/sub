@@ -119,11 +119,20 @@ function attach(layerKey, audioEl) {
 
 function makeElement(tag) {
   const el = new Audio();
-  el.preload = 'auto';
+  el.preload = 'metadata';
   el.playsInline = true;
-  ['play', 'pause', 'ended', 'stalled', 'waiting', 'error', 'suspend'].forEach((ev) => {
+  const MEDIA_ERR = {
+    1: 'ABORTED — load cancelled',
+    2: 'NETWORK — transfer failed mid-load',
+    3: 'DECODE — file is corrupt, or truncated by low memory',
+    4: 'SRC_NOT_SUPPORTED — this browser cannot decode this format',
+  };
+  const events = ['loadedmetadata', 'canplay', 'play', 'pause', 'ended', 'stalled', 'waiting', 'error', 'suspend'];
+  events.forEach((ev) => {
     el.addEventListener(ev, () => {
-      const extra = ev === 'error' && el.error ? ` (code ${el.error.code})` : '';
+      let extra = '';
+      if (ev === 'error' && el.error) extra = ` — ${MEDIA_ERR[el.error.code] || el.error.code}`;
+      if (ev === 'loadedmetadata') extra = ` — duration ${fmtDuration(el.duration)}`;
       log(`[${tag}] ${ev}${extra} @ ${el.currentTime.toFixed(1)}s`, ev === 'error' ? 'bad' : '');
     });
   });
@@ -137,7 +146,7 @@ els.loopFile.addEventListener('change', () => {
   if (!f) return;
   if (layers.loop.url) URL.revokeObjectURL(layers.loop.url);
   layers.loop.url = URL.createObjectURL(f);
-  log(`loop file: ${f.name} (${(f.size / 1048576).toFixed(1)} MB)`);
+  describe('loop', f);
   updateStatus();
 });
 
@@ -147,10 +156,36 @@ els.listFiles.addEventListener('change', () => {
   layers.list.urls = files.map((f) => URL.createObjectURL(f));
   layers.list.names = files.map((f) => f.name);
   layers.list.index = 0;
-  log(`playlist files: ${files.map((f) => f.name).join(', ') || '(none)'}`);
+  files.forEach((f) => describe('list', f));
   if (files.length < 2) log('pick two files for the playlist layer — rollover needs a next track', 'bad');
   updateStatus();
 });
+
+function fmtDuration(d) {
+  if (!isFinite(d)) return 'unknown';
+  return `${Math.floor(d / 60)}m ${String(Math.round(d % 60)).padStart(2, '0')}s`;
+}
+
+// Report what we actually got. On iOS the picker hands back files with an empty
+// MIME type surprisingly often, and oversized files are the usual failure cause.
+function describe(tag, f) {
+  const mb = f.size / 1048576;
+  log(`[${tag}] picked "${f.name}" — ${mb.toFixed(1)} MB, type "${f.type || '(none reported)'}"`);
+  if (mb > 60) {
+    log(`[${tag}] that file is large; iOS may run out of memory decoding it. Re-encode to ~128 kbps MP3 if it fails.`, 'bad');
+  }
+  const probe = new Audio();
+  probe.preload = 'metadata';
+  probe.addEventListener('loadedmetadata', () => {
+    log(`[${tag}] "${f.name}" is decodable — duration ${fmtDuration(probe.duration)}`, 'ok');
+    URL.revokeObjectURL(probe.src);
+  });
+  probe.addEventListener('error', () => {
+    log(`[${tag}] "${f.name}" FAILED to load before playback even started (code ${probe.error && probe.error.code})`, 'bad');
+    URL.revokeObjectURL(probe.src);
+  });
+  probe.src = URL.createObjectURL(f);
+}
 
 function updateStatus() {
   const ready = layers.loop.url && layers.list.urls.length >= 2;

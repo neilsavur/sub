@@ -89,7 +89,7 @@
   <h2>Layer 1 — loop</h2>
   <p class="note">One file, loops forever. No mid-playback logic, so this should survive locking.</p>
   <label for="loopFile">Subliminal / long track</label>
-  <input type="file" id="loopFile" accept="audio/*">
+  <input type="file" id="loopFile">
   <label for="loopVol">Volume</label>
   <div class="vol">
     <input type="range" id="loopVol" min="0" max="1" step="0.01" value="0.5">
@@ -101,7 +101,7 @@
   <h2>Layer 2 — playlist</h2>
   <p class="note">Two files, advances on <code>ended</code>. This is the part under test — use short tracks (~30s).</p>
   <label for="listFiles">Two songs (select both)</label>
-  <input type="file" id="listFiles" accept="audio/*" multiple>
+  <input type="file" id="listFiles" multiple>
   <label for="listVol">Volume</label>
   <div class="vol">
     <input type="range" id="listVol" min="0" max="1" step="0.01" value="0.5">
