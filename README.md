@@ -1,102 +1,93 @@
-# Subliminal + Music Multi-Layer Player
+# Layers — Subliminal + Music Multi-Layer Player
 
-A web app (installed on iPhone via Safari → Add to Home Screen) that plays several audio layers
-mixed into one output: a subliminal looping underneath, plus any number of extra layers — music
-playlists, ambient tracks, more subliminals — each with its own volume. Mixed through the Web Audio
-API so iOS treats it as a single audio session with lock-screen controls and playback that survives
-the screen locking.
+A web app, installed on iPhone via Safari → Add to Home Screen, that plays any number of audio
+layers mixed into one output: a subliminal looping underneath, plus music playlists, ambient
+tracks, more subliminals — each with its own volume. Mixed through the Web Audio API so iOS treats
+it as a single audio session, with lock-screen controls and playback that survives the screen
+locking.
 
-**Current state: Phase 0 only — the lock-screen spike.** The full app is not built yet, on purpose.
+**Live:** https://neilsavur.github.io/sub/
 
-## Why the spike exists
+## The gating question, answered
 
-The whole design rests on one thing nobody has verified on this phone: whether a playlist layer
-actually advances from track to track *while the screen is locked*. Several iOS/PWA reports say the
-next track only starts once you unlock. A pure looping layer needs no mid-playback logic and should
-be fine either way.
+The whole design rested on one unverified thing: whether a playlist layer advances from track to
+track *while the screen is locked*. Reports suggested the next track might only start on unlock.
 
-If rollover works, playlist layers are straightforward. If it doesn't, they need a different
-mechanism (pre-concatenating tracks into one buffer, or pre-scheduling sources on the audio clock),
-and that changes the core of the app. So: test first, build second.
+`spike/` was a throwaway test page built to answer exactly that, and it was **tested on-device:
+playback continues and the playlist rolls over correctly while locked.** So the straightforward
+design — one media element per layer, advancing on the `ended` event — is what the app uses.
+The spike is kept in the repo as a diagnostic tool, not as part of the app.
 
-`spike/` is disposable throwaway code. It is not the app.
+## What it does
 
-## Deploying it
+- **Unlimited layers.** No fixed cap; `+ Add layer` any time. Layers are entries in a `Map`, so
+  each one is just another node chain.
+- **Loop or playlist, per layer.** Loop repeats one track forever; playlist walks its tracks in
+  order and starts again.
+- **Independent volume** per layer, plus mute and a master volume.
+- **Your own files.** Upload MP3s (or m4a/wav/aiff) into the library; stored on-device in IndexedDB.
+- **Presets.** Save a named snapshot of the whole setup — which files, loop vs playlist, volumes,
+  mute states — and load it back.
+- **Lock screen.** Now-playing metadata and play/pause/next through the Media Session API.
+- **Session memory.** Reopening the app restores the layers you left set up.
 
-GitHub Pages, because iOS will not install a PWA to the home screen from a plain-HTTP origin.
+## Installing it on the phone
 
-```bash
-git add -A && git commit -m "Lock-screen spike"
+Open https://neilsavur.github.io/sub/ in **Safari** → Share → **Add to Home Screen**, then launch
+it from the icon. It must run standalone rather than in a Safari tab — backgrounding behaves
+differently in a tab.
+
+## How it fits together
+
+```
+index.html / style.css / app.js      UI wiring, transport, media session, persistence
+audio/mixer.js                       the AudioContext, master bus, the layer Map
+audio/layer.js                       one layer: element -> gain -> master, loop or playlist
+storage/db.js                        IndexedDB wrapper (files + presets stores)
+storage/files.js                     the audio library; blobs in, object URLs out
+storage/presets.js                   named layer snapshots
+ui/layerView.js                      the layer cards
+ui/library.js                        upload / pick / delete sheet
+ui/presets.js                        save / load / delete sheet
+sw.js                                app-shell cache (audio never goes in here)
+spike/                               the original lock-screen diagnostic page
 ```
 
-Then create an empty repo on GitHub and:
+### Three decisions that are load-bearing on iOS
 
-```bash
-git remote add origin git@github.com:YOUR_USERNAME/YOUR_REPO.git && git push -u origin main
-```
+Changing any of these will break background playback in ways that are hard to debug, so they are
+commented in place:
 
-Then in the repo: **Settings → Pages → Source: Deploy from a branch → `main` / `(root)` → Save.**
-After a minute the spike is at:
+1. **`HTMLAudioElement` + `createMediaElementSource`, not `AudioBufferSourceNode`.** iOS ties
+   background playback and the now-playing session to a real media element. A pure buffer graph
+   often gets no lock-screen presence at all.
+2. **One element per layer, reused for every track by swapping `src`.** iOS grants playback
+   permission to an element once it has played inside a user gesture. A *new* element created later
+   — while locked, say — would be blocked from starting.
+3. **Nothing the lock screen depends on sits behind `requestAnimationFrame`.** rAF does not fire
+   while the page is hidden, which is exactly the locked case; media-session updates run
+   synchronously, and only the layer-list DOM rebuild is deferred.
 
-```
-https://YOUR_USERNAME.github.io/YOUR_REPO/spike/
-```
+## Storage
 
-Desktop smoke test first, if you want (proves the mixing works, proves nothing about iOS):
+Audio lives in IndexedDB on the device. The app requests persistent storage, but **iOS can still
+evict it** — the footer shows how much space is in use. Keep your original files in the Files app
+as backup. Large files are also worth re-encoding: a subliminal at 128 kbps MP3 is roughly a tenth
+the size of a WAV with no audible difference for that kind of layer.
+
+## Developing
 
 ```bash
 python3 -m http.server 8000
 ```
 
-…then open http://localhost:8000/spike/
+Then open http://localhost:8000/. No build step and no dependencies — plain ES modules.
 
-## The test
+Deploys are automatic: pushing to `main` publishes to GitHub Pages.
 
-You need three MP3s on the phone: one long track for the loop layer, and **two short ones (~30s)**
-for the playlist layer — short, so you aren't standing around with a locked phone for four minutes.
+## Known limits
 
-1. Open the Pages URL in **Safari** on the iPhone. Share → **Add to Home Screen**. Close Safari and
-   open it from the new icon (it must run standalone, not in a Safari tab — the backgrounding
-   behaviour differs).
-2. Load the long track into **Layer 1**, and select **both** short songs for **Layer 2**.
-3. Press **Play**. Check you can hear both at once, and that each volume slider moves only its own
-   layer.
-4. **Lock the phone.** Keep it locked, listening, past the end of song 1.
-5. The question: **does song 2 start while it's still locked?** Note roughly how long after song 1
-   ended, if it does.
-6. While still locked, check the lock screen shows track info, and that the play/pause button there
-   actually pauses and resumes.
-7. Unlock. Read the event log at the bottom of the page and hit **Copy**.
-
-### What the log tells us
-
-- `[list] ended` then `[list] ADVANCING` with a **timestamp from while you were locked** → rollover
-  works. Best case.
-- Both stamped at the moment you **unlocked** → JS was frozen; playlist layers need the fallback.
-- `beat` lines stopping during lock and then arriving in a burst → timers were throttled, same
-  conclusion.
-- `play() REJECTED` → iOS blocked the un-gestured start; also a fallback case, different cause.
-- `ctx.statechange -> suspended`/`interrupted` → the audio session itself was torn down, which
-  affects *every* layer, not just playlists.
-
-Send me the copied log and we'll pick the design from there.
-
-## Planned structure (Phase 1+, not built)
-
-- `audio/mixer.js` — the `AudioContext`, master gain, and a map of layer id → node chain. A layer is
-  just another entry, so there's no cap on layer count.
-- `audio/layer.js` — one layer: source element, gain, mode (`loop` | `playlist`), track list,
-  advance logic, mute, dispose.
-- `storage/files.js` — IndexedDB store of uploaded MP3 blobs.
-- `storage/presets.js` — named snapshots of a layer setup (files, modes, volumes, order).
-- `sw.js` — caches the app shell only; audio blobs stay in IndexedDB.
-
-Browser storage is not guaranteed permanent — iOS can evict it. **Keep your original MP3s in the
-Files app as backup.**
-
-## Notes
-
-- The app icons in `icons/` are generated placeholders (`icons/` was produced by a script, not
-  artwork). Swap them whenever.
-- `navigator.audioSession.type = 'playback'` is set when available — the iOS 17.5+ fix for
-  background suspension. The log says whether your phone supports it.
+- Service workers do not register in some embedded/preview browsers; this is caught and ignored,
+  and only affects offline use.
+- The volume slider is disabled while a layer is muted — unmute to adjust it.
+- Track reordering within a playlist is not implemented; remove and re-add to change the order.
