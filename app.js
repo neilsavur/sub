@@ -248,11 +248,32 @@ async function reportStorage() {
   storageLine.textContent = `Using ${usedMb} MB of about ${quotaMb} MB on this device. iOS can clear this — keep your originals in the Files app.`;
 }
 
+// ---------------------------------------------------------------- layout
+
+// The transport is fixed over the page, so the body needs bottom padding exactly
+// as tall as it is. Its height is not a constant — the safe-area inset differs
+// per device, and the status line wraps to two lines on narrow screens — so
+// measure it rather than hardcoding, or the last layer's volume slider ends up
+// under the bar with no scroll room left to reach it.
+function trackTransportHeight() {
+  const bar = document.querySelector('.transport');
+  if (!bar) return;
+  const apply = () => {
+    const h = Math.ceil(bar.getBoundingClientRect().height) + 24;
+    document.documentElement.style.setProperty('--transport-clearance', `${h}px`);
+  };
+  apply();
+  if ('ResizeObserver' in window) new ResizeObserver(apply).observe(bar);
+  window.addEventListener('orientationchange', () => setTimeout(apply, 300));
+  window.addEventListener('resize', apply);
+}
+
 // ---------------------------------------------------------------- boot
 
 mixer.onchange = draw;
 
 (async function boot() {
+  trackTransportHeight();
   await files.load();
   await restoreSession();
   wireMediaSessionActions();

@@ -15,16 +15,27 @@
 
 * { box-sizing: border-box; }
 
-html, body { height: 100%; }
+/* NOT height:100% — that pins the body box to the viewport, and its bottom
+   padding then stops extending the scrollable area, which leaves the last
+   layer's controls stranded under the fixed transport with no scroll left. */
+html { min-height: 100%; }
 
 body {
   margin: 0;
+  min-height: 100%;
   background: var(--bg);
   color: var(--text);
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  padding-bottom: 190px; /* clear the fixed transport */
+
+  /* Measured from the real transport at runtime (see app.js). The fallback only
+     has to hold for the first frame; the footer's height changes with the
+     safe-area inset and with the status line wrapping, so it is never a constant. */
+  padding-bottom: var(--transport-clearance, 210px);
 }
+
+/* Keep anything scrolled-to clear of the footer too. */
+html { scroll-padding-bottom: var(--transport-clearance, 210px); }
 
 /* ---------------------------------------------------------------- header */
 
@@ -214,7 +225,8 @@ input[type=range] {
   flex: 1;
   min-width: 0;
   accent-color: var(--accent);
-  height: 28px;
+  height: 44px; /* full touch target — a 28px strip is easy to miss with a thumb */
+  touch-action: pan-y; /* let a vertical swipe on the slider still scroll the page */
 }
 
 .vol-out, .master output {
